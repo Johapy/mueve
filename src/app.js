@@ -4,7 +4,7 @@ import authRoutes from "./routes/authRoutes.js";
 import transactionRoutes from "./routes/transactionRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import cors from "cors";
-import rateLimit from "express-rate-limit";
+//import rateLimit from "express-rate-limit";
 
 const app = express();
 
@@ -15,12 +15,12 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100 // límite de solicitudes por IP
-});
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutos
+//   max: 100 // límite de solicitudes por IP
+// });
 
-app.use(limiter);
+// app.use(limiter);
 
 app.get("/", async (req, res) => {
   try {
