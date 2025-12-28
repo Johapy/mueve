@@ -3,6 +3,7 @@ import pool from "./db/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import transactionRoutes from "./routes/transactionRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+import rateRoutes from "./routes/rateRoutes.js";
 import cors from "cors";
 //import rateLimit from "express-rate-limit";
 
@@ -33,6 +34,7 @@ app.get("/", async (req, res) => {
 });
 
 app.use("/api", authRoutes);
+app.use("/api", rateRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/payments-methods", paymentRoutes);
 
