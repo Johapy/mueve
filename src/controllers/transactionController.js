@@ -1,4 +1,5 @@
 import pool from "../db/db.js";
+import { getBTC } from "../services/dolar-service.js";
 
 // Crear una transacción nueva
 export const createTransaction = async (req, res) => {
@@ -14,6 +15,18 @@ export const createTransaction = async (req, res) => {
 
     if (!transaction_type || !amount_usd || !rate_bs || !payment_reference) {
       return res.status(400).json({ message: "Todos los campos son obligatorios" });
+    }
+
+    const rateInRedis = await getBTC();
+    const rateSentByUser = parseFloat(rate_bs);
+
+    const tolerance = 0.15; 
+    const diff = Math.abs(rateInRedis - rateSentByUser);
+
+    if (diff > tolerance) {
+        return res.status(400).json({ 
+            message: "La tasa ha cambiado. Por favor actualiza la página para continuar." 
+        });
     }
 
     const commission_usd = 1.0;
