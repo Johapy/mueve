@@ -11,6 +11,7 @@ export const createTransaction = async (req, res) => {
       rate_bs,
       payment_reference,
       type_pay,
+      recipient_account,
     } = req.body;
 
     if (!transaction_type || !amount_usd || !rate_bs || !payment_reference) {
@@ -35,9 +36,9 @@ export const createTransaction = async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO transactions 
-      (user_id, transaction_type, amount_usd, commission_usd, total_usd, rate_bs, total_bs, payment_reference, status, type_pay)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?)`,
-      [userId, transaction_type, amount_usd, commission_usd, total_usd, rate_bs, total_bs, payment_reference, type_pay]
+      (user_id, transaction_type, amount_usd, commission_usd, total_usd, rate_bs, total_bs, payment_reference, status, type_pay, recipient_account)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?)`,
+      [userId, transaction_type, amount_usd, commission_usd, total_usd, rate_bs, total_bs, payment_reference, type_pay, recipient_account]
     );
 
     res.status(201).json({
@@ -54,6 +55,7 @@ export const createTransaction = async (req, res) => {
         payment_reference,
         status: "Pendiente",
         type_pay,
+        recipient_account,
       },
     });
 
@@ -69,6 +71,7 @@ export const createTransaction = async (req, res) => {
       payment_reference,
       status: "Pendiente",
       type_pay,
+      recipient_account,
     });
 
   } catch (error) {
