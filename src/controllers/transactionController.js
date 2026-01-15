@@ -1,6 +1,20 @@
 import pool from "../db/db.js";
 import { getBTC } from "../services/dolar-service.js";
 
+// Helpers
+const round2 = (v) => {
+  return Math.round((parseFloat(v) || 0) * 100) / 100;
+};
+
+const getCommissionUsd = (amount) => {
+  const A = parseFloat(amount) || 0;
+  if (A >= 1 && A < 10) return 0.8;
+  if (A >= 10 && A < 15) return 1.0;
+  if (A >= 15 && A <= 25) return 1.4;
+  if (A > 25) return round2(1.4 + (A - 25) * 0.08);
+  return 0;
+};
+
 // Crear una transacción nueva
 export const createTransaction = async (req, res) => {
   try {
@@ -21,7 +35,7 @@ export const createTransaction = async (req, res) => {
     const rateInRedis = await getBTC();
     const rateSentByUser = parseFloat(rate_bs);
 
-    const tolerance = 0.15; 
+    const tolerance = 0.35; 
     const diff = Math.abs(rateInRedis - rateSentByUser);
 
     if (diff > tolerance) {
@@ -30,9 +44,33 @@ export const createTransaction = async (req, res) => {
         });
     }
 
-    const commission_usd = 1.0;
-    const total_usd = parseFloat(amount_usd) + commission_usd;
-    const total_bs = total_usd * parseFloat(rate_bs);
+    // Calcular comisión de forma consistente con el frontend
+    const commission_usd = round2( getCommissionUsd(amount_usd) );
+
+    // Asegurar tipos numéricos
+    const A = parseFloat(amount_usd);
+    const r = parseFloat(rate_bs);
+
+    let total_usd; // para guardar en DB (monto efectivo considerado)
+    let total_bs;
+
+    if (transaction_type === 'Comprar' || transaction_type === 'COMPRA') {
+      // El usuario paga la comisión: total_usd = amount + commission
+      total_usd = round2( A + commission_usd );
+      total_bs = round2( total_usd * r );
+    } else if (transaction_type === 'Vender' || transaction_type === 'VENTA') {
+      // Al usuario se le descuenta la comisión: net_usd = amount - commission
+      const net_usd = round2( A - commission_usd );
+      if (net_usd <= 0) {
+        return res.status(400).json({ message: "La comisión excede o iguala el monto proporcionado" });
+      }
+      total_usd = net_usd; // lo que efectivamente se toma como base
+      total_bs = round2( total_usd * r );
+    } else {
+      // Si viene otro valor, usar la lógica por defecto (tratar como Compra)
+      total_usd = round2( A + commission_usd );
+      total_bs = round2( total_usd * r );
+    }
 
     const [result] = await pool.query(
       `INSERT INTO transactions 
