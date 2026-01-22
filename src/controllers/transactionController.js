@@ -15,6 +15,49 @@ const getCommissionUsd = (amount) => {
   return 0;
 };
 
+// DB check for duplicate payment_reference
+const isPaymentReferenceUsed = async (reference) => {
+  if (!reference) return false;
+  const [rows] = await pool.query(
+    "SELECT id FROM transactions WHERE payment_reference = ? LIMIT 1",
+    [reference],
+  );
+  return rows.length > 0;
+};
+
+// Compute commission and totals based on transaction type
+const computeTotals = ({ transaction_type, amount_usd, rate_bs }) => {
+  const commission_usd = round2(getCommissionUsd(amount_usd));
+  const A = parseFloat(amount_usd);
+  const r = parseFloat(rate_bs);
+
+  if (isNaN(A) || isNaN(r)) {
+    throw new Error("Invalid numeric values for amount or rate");
+  }
+
+  if (transaction_type === "Vender" || transaction_type === "VENTA") {
+    const net_usd = round2(A - commission_usd);
+    if (net_usd <= 0) {
+      return { error: "La comisión excede o iguala el monto proporcionado" };
+    }
+    return {
+      commission_usd,
+      total_usd: net_usd,
+      total_bs: round2(net_usd * r),
+      raw_amount_usd: A,
+    };
+  }
+
+  // Default: treat as Comprar
+  const total_usd = round2(A + commission_usd);
+  return {
+    commission_usd,
+    total_usd,
+    total_bs: round2(total_usd * r),
+    raw_amount_usd: A,
+  };
+};
+
 // Crear una transacción nueva
 export const createTransaction = async (req, res) => {
   try {
@@ -29,54 +72,52 @@ export const createTransaction = async (req, res) => {
     } = req.body;
 
     if (!transaction_type || !amount_usd || !rate_bs || !payment_reference) {
-      return res.status(400).json({ message: "Todos los campos son obligatorios" });
+      return res
+        .status(400)
+        .json({ message: "Todos los campos son obligatorios" });
     }
 
     const rateInRedis = await getBTC();
     const rateSentByUser = parseFloat(rate_bs);
 
-    const tolerance = 0.35; 
+    const tolerance = 0.35;
     const diff = Math.abs(rateInRedis - rateSentByUser);
 
     if (diff > tolerance) {
-        return res.status(400).json({ 
-            message: "La tasa ha cambiado. Por favor actualiza la página para continuar." 
-        });
+      return res.status(400).json({
+        message:
+          "La tasa ha cambiado. Por favor actualiza la página para continuar.",
+      });
+    }
+    // Evitar referencias duplicadas
+    const isUsed = await isPaymentReferenceUsed(payment_reference);
+    if (isUsed) {
+      return res.status(409).json({ message: "La referencia de pago ya fue utilizada" });
     }
 
-    // Calcular comisión de forma consistente con el frontend
-    const commission_usd = round2( getCommissionUsd(amount_usd) );
-
-    // Asegurar tipos numéricos
-    const A = parseFloat(amount_usd);
-    const r = parseFloat(rate_bs);
-
-    let total_usd; // para guardar en DB (monto efectivo considerado)
-    let total_bs;
-
-    if (transaction_type === 'Comprar' || transaction_type === 'COMPRA') {
-      // El usuario paga la comisión: total_usd = amount + commission
-      total_usd = round2( A + commission_usd );
-      total_bs = round2( total_usd * r );
-    } else if (transaction_type === 'Vender' || transaction_type === 'VENTA') {
-      // Al usuario se le descuenta la comisión: net_usd = amount - commission
-      const net_usd = round2( A - commission_usd );
-      if (net_usd <= 0) {
-        return res.status(400).json({ message: "La comisión excede o iguala el monto proporcionado" });
-      }
-      total_usd = net_usd; // lo que efectivamente se toma como base
-      total_bs = round2( total_usd * r );
-    } else {
-      // Si viene otro valor, usar la lógica por defecto (tratar como Compra)
-      total_usd = round2( A + commission_usd );
-      total_bs = round2( total_usd * r );
+    // Calcular comisión y totales usando helpers
+    const totals = computeTotals({ transaction_type, amount_usd, rate_bs });
+    if (totals.error) {
+      return res.status(400).json({ message: totals.error });
     }
+    const { commission_usd, total_usd, total_bs } = totals;
 
     const [result] = await pool.query(
       `INSERT INTO transactions 
       (user_id, transaction_type, amount_usd, commission_usd, total_usd, rate_bs, total_bs, payment_reference, status, type_pay, recipient_account)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?)`,
-      [userId, transaction_type, amount_usd, commission_usd, total_usd, rate_bs, total_bs, payment_reference, type_pay, recipient_account]
+      [
+        userId,
+        transaction_type,
+        amount_usd,
+        commission_usd,
+        total_usd,
+        rate_bs,
+        total_bs,
+        payment_reference,
+        type_pay,
+        recipient_account,
+      ],
     );
 
     res.status(201).json({
@@ -111,7 +152,6 @@ export const createTransaction = async (req, res) => {
       type_pay,
       recipient_account,
     });
-
   } catch (error) {
     console.error("Error al crear transacción:", error);
     res.status(500).json({ message: "Error del servidor" });
@@ -124,7 +164,7 @@ export const getUserTransactions = async (req, res) => {
     const userId = req.user.id;
     const [transactions] = await pool.query(
       "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC",
-      [userId]
+      [userId],
     );
     res.json(transactions);
   } catch (error) {
@@ -141,7 +181,7 @@ export const getTransactionById = async (req, res) => {
 
     const [rows] = await pool.query(
       "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
-      [transactionId, userId]
+      [transactionId, userId],
     );
 
     if (rows.length === 0) {
